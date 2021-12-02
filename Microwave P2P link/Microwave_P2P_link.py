@@ -158,7 +158,7 @@ def transmittedPowerCorrection(Ptx, FFM, d):
     
     #Perform OR logical operation on given values and store it as Ptx_bad
     Ptx_bad = Ptx_bad_min|Ptx_bad_max
-    
+
     #Find indices of values which satisfy the given condition
     indices = [i for i, x in enumerate(Ptx_bad) if x]
 
