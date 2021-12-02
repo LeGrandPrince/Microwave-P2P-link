@@ -139,7 +139,7 @@ def setMinimumFFM(d):
           + str(min_FFM.round(2)) + " dBm.\n\n\n")
     return min_FFM
           
-def transmittedPowerCorrection(Ptx, FFM, d):
+def transmittedPowerCorrection(Ptx, FFM, d, min):
     '''
     Corrects the value of transmitted Power for each link based on given distance.
 
@@ -158,7 +158,7 @@ def transmittedPowerCorrection(Ptx, FFM, d):
     
     #Perform OR logical operation on given values and store it as Ptx_bad
     Ptx_bad = Ptx_bad_min|Ptx_bad_max
-    
+
     #Find indices of values which satisfy the given condition
     indices = [i for i, x in enumerate(Ptx_bad) if x]
 
@@ -179,12 +179,14 @@ def carrierInterferenceRatio(Prx, FB, CI_min):
     #on scheme by adding 0 as the first element.
     FFM_left =  np.concatenate(([0], FFM_corr)) 
     Prx_left = np.concatenate(([0], Prx))
-
+    print(FFM_left)
+    print(Prx_left)
     #Create arrays of Prx and FFM's coming from the rightside of the reciever
     #on scheme by adding 0 as the last element.
     Prx_right = np.concatenate((Prx, [0]))
     FFM_right =  np.concatenate((FFM_corr, [0]))
-
+    print(Prx_right)
+    print(FFM_right)
     #Create an array for which every station (reciever) will contain two values, 
     #interference from the left side and from right side
     CI = np.zeros((len(d)+1, 2))
@@ -194,7 +196,7 @@ def carrierInterferenceRatio(Prx, FB, CI_min):
     i = 0
     for val in CI:
 
-        CI[i] = [(Prx_left[i] - FFM_left[i]) - (Prx_right[i] - FB_ratio), (Prx_right[i] - FFM_right[i]) - (Prx_left[i] - FB_ratio)]
+        CI[i] = [(Prx_left[i] - FFM_left[i]) - (Prx_right[i] - FB), (Prx_right[i] - FFM_right[i]) - (Prx_left[i] - FB)]
         i = i + 1
 
     #Leave out first and last element, since they represent end stations and there is
@@ -248,7 +250,7 @@ Pte6 = powerThreshold(F_rx, B, "128-QAM", "MHz")
 FFM = flatFadeMargin(G, d, Pt, Carrier_freq,  Pte6)
 
 #Perform transitted power correction to satisfy the minimum FFM values.
-Ptx_corr = transmittedPowerCorrection(Pt, FFM, d)
+Ptx_corr = transmittedPowerCorrection(Pt, FFM, d, min)
 
 #Calculate FFM for corrected values of Pt
 FFM_corr = flatFadeMargin(G, d, Ptx_corr, Carrier_freq,  Pte6)
@@ -269,7 +271,7 @@ R = pd.DataFrame(data = results)
 print(R.to_string())
 
 #Calculate effective isotropic radiated power
-P_EIRP = Ptx_corr + G
+P_rx = Ptx_corr- (20*np.log10(d)+20*np.log(Carrier_freq) + 92.4) + 2*G
 
 #Specify front/back ratio
 FB_ratio = 69
@@ -278,10 +280,9 @@ FB_ratio = 69
 minimum_CI = 15
 
 #Call method to calculate C/I 
-CI = carrierInterferenceRatio(P_EIRP, FB_ratio, minimum_CI)
+CI = carrierInterferenceRatio(P_rx, FB_ratio, minimum_CI)
 
 print(CI.to_string())
-
 
 
 
