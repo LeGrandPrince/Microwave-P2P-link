@@ -179,14 +179,12 @@ def carrierInterferenceRatio(Prx, FB, CI_min):
     #on scheme by adding 0 as the first element.
     FFM_left =  np.concatenate(([0], FFM_corr)) 
     Prx_left = np.concatenate(([0], Prx))
-    print(FFM_left)
-    print(Prx_left)
+    
     #Create arrays of Prx and FFM's coming from the rightside of the reciever
     #on scheme by adding 0 as the last element.
     Prx_right = np.concatenate((Prx, [0]))
     FFM_right =  np.concatenate((FFM_corr, [0]))
-    print(Prx_right)
-    print(FFM_right)
+    
     #Create an array for which every station (reciever) will contain two values, 
     #interference from the left side and from right side
     CI = np.zeros((len(d)+1, 2))
