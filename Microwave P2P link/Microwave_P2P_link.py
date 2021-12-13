@@ -1,7 +1,7 @@
 import numpy as np
 import math
 import pandas as pd
-from scipy.special import erfc
+from scipy.special import erf
 
 def powerThreshold(F_rx, B, M_QAM = "16-QAM", B_unit = "MHz"):
     '''
@@ -91,6 +91,7 @@ def flatFadeMargin(Ga, d, Ptx, fc, Pthe):
     flatFade = {'BER_e6':P_rx - Pth_e6[0],
                 'BER_e3':P_rx - Pth_e3[0]}
     
+    #Create dataframe from flatFade
     FFM = pd.DataFrame(flatFade)
 
     print("FFM is:\n" + str(FFM) + "\n")
@@ -174,9 +175,12 @@ def transmittedPowerCorrection(Ptx, FFM, d):
     #Create an array of booleans for given condition
     Ptx_bad = FFM_e6 < min
 
+
     #Find indices of values which satisfy the given condition
     indices = [i for i, x in enumerate(Ptx_bad) if x]
-
+    
+    
+   
     #For each index which satisfies given condition, update the value by given formula
     for i in indices:
         Pt[i] = Pt[i] + (min[i] - FFM_e6[i])
@@ -199,13 +203,13 @@ def linkQuality(B, FFM, f, d, t_a = 0, t_aR = 0, c = 0.065):
     c: terrain coefficient different for each country
     '''
     #Calculate fmin and fmax
-    f1 = -B/2
-    f2 = B/2
+    f1 =  f*1000 - B/2 
+    f2 =  f*1000 + B/2 
 
     #Calculate signature
-    S = np.exp(-(f1 + f2)/7.6 * (6))
+    S = np.exp(-(6 + 6)/7.6  ) * 28
 
-    #Calculate S_e3, S_e6 and mean time delay
+    #Calculate S_e3, S_e6 and specify usual time delay [microsecs]
     S_e3 = S
     S_e6 = S * 1.7
     tau = 6.3
@@ -219,10 +223,11 @@ def linkQuality(B, FFM, f, d, t_a = 0, t_aR = 0, c = 0.065):
     q2 = 0.5
 
     #Probability of interferential fading occurence
-    PR = (c * Carrier_freq * 10**-3 * d**3 * 6 * 10**(-8))
+    PR = (1.4*10**-8 * Carrier_freq * d**3)
+    #PR = c * f * 10**3 * d**3 * 6 * 10**-8
 
     #Probability of selective fading occurence
-    Ps = (1 - np.exp(-6.3 * 10**(-3) * PR**0.75))
+    Ps = (1 - np.exp(-6.3 * 10**(-3) * PR**0.75)) * 100
 
     #Mean value of delay
     tau_er = 0.7 * (d/50)**1.3
@@ -230,32 +235,32 @@ def linkQuality(B, FFM, f, d, t_a = 0, t_aR = 0, c = 0.065):
     #BER-3 error rate 
     t3sM = 9.25 * 10**(-3) * Ps * S_e3 * (tau_er**2 / tau) * q1
     t3sN = 9.25 * 10**(-3) * Ps * S_e3 * (tau_er**2 / tau) * (1 - q1)
-    t3s = t3sM + t3sN
+    t_3s = t3sM + t3sN
     
     #BER-6 error rate
     t6sM = 9.25 * 10**(-3) * Ps * S_e6 * (tau**2 / tau) * (q1)
     t6sN = 9.25 * 10**(-3) * Ps * S_e6 * (tau**2 / tau) * (1 - q1)
-    t6s = t6sM + t6sN
+    t_6s = t6sM + t6sN
     
     FFM_3 = FFM['BER_e3'].to_numpy()
     FFM_6 = FFM['BER_e6'].to_numpy()
 
-    t3f = 10**(-0.1*FFM_3)
-    t6f = 10**(-0.1*FFM_6) 
+    t_3f = 10**(-0.1*FFM_3)
+    t_6f = 10**(-0.1*FFM_6) 
 
 
     #Calculation of probability that t >= 10
     numerator = (10 - 10 * np.log10((56.6 * np.sqrt(d))) /  (Carrier_freq) * 10**(-(FFM_3 / 20)))
     denominator = (7.55 - c * FFM_3) * np.sqrt(2)
 
-    Prob_t10 = (1/2 * erfc(numerator / denominator + 0.375))
+    Prob_t10 = (1/2 * erf(numerator / denominator + 0.375))
 
     #CALCULATION OF IDLE TIME
     #by flat, interferential fadings
-    t_Kf = t3f/4 * Prob_t10
+    t_Kf = t_3f/4 * Prob_t10
 
     #by selective fadings
-    t_Ks = t3s/4 * Prob_t10
+    t_Ks = t_3s/4 * Prob_t10
 
     #Sum + absorptive fadings (yearly)
     t_K = t_Kf + t_Ks + t_aR
@@ -264,10 +269,10 @@ def linkQuality(B, FFM, f, d, t_a = 0, t_aR = 0, c = 0.065):
 
     #CALCULATION OF SES
     #by interferencial fadings
-    t_SESf = t3f * (1 - Prob_t10)
+    t_SESf = t_3f * (1 - Prob_t10)
 
     #by selective fadings
-    t_SESs = t3s * (1 - Prob_t10)
+    t_SESs = t_3s * (1 - Prob_t10)
 
     #by absorptive fadings (worst month)
     t_SESa = t_a/186
@@ -279,10 +284,10 @@ def linkQuality(B, FFM, f, d, t_a = 0, t_aR = 0, c = 0.065):
 
     #DM CALCULATION
     # by flat, interferential fadings
-    t_DMf = 5.5 * (t6f - t3f)
+    t_DMf = 5.5 * (t_6f - t_3f)
 
     #by selective fadings
-    t_DMs = 5.5 * (t6s - t3s)
+    t_DMs = 5.5 * (t_6s - t_3s)
 
     #by absorptive fadings
     t_DMa = 0.555 * (t_a - 0.1 * t_a)
@@ -357,7 +362,8 @@ def carrierInterferenceRatio(Ptx, FB, CI_min, FFM, G, fc):
     #Create an array of booleans for C/I higher than minimum C/I
     CI_cond = CI > CI_min
     
-    #Store the results in dict
+    #Exclude last and first element of each array (since there cannot be close
+    #station interference and store it as a dict
     result = {'C/I_from_right[dB]':np.round(CI[:, 1],2),
               'C/I_from_left[dB]':np.round(CI[:, 0],2),
               'Satisfies_right':CI_cond[:,1],
@@ -366,7 +372,11 @@ def carrierInterferenceRatio(Ptx, FB, CI_min, FFM, G, fc):
    
     #Create a df from dict and return it
     Results = pd.DataFrame(result)
+
+    #Change indices to start from 2 instead of 0 
     Results.index = np.arange(2, len(Results)+2)
+
+    #Set index label as Repeater
     Results.index.name = 'Repeater'
     print(Results.to_string())
     return Results
@@ -378,24 +388,62 @@ def linkDraw(Q, d):
     d: array of distances
     '''
     
+    #Pull parameters out of dataframe as numpy arrays
     idleTime = Q['Idle_time'].to_numpy()
     SES = Q['SES'].to_numpy()
     DM = Q['DM'].to_numpy()
 
     
-    #Percentage by class X1
-    idleTime_perc = (0.0112/280)*d
-    SES_perc = (0.006/280)*d
-    DM_perc = (0.0448/280)*d
-    
+    #Percentage by class X4
+    idleTime_perc = (0.0333/50)*d
+    SES_perc = (0.003/50)*d
+    DM_perc = (0.2/50)*d
+            
     #Calculate draw and store it as a dict
     d = {'Idle_time': idleTime*100/idleTime_perc,
          'SES': SES*100/SES_perc,
          'DM': DM*100/DM_perc }
 
+    #Create a pandas DF and print it
     Draw = pd.DataFrame(d)
-    print("Link draw is:\n" + str(Draw) + "\n")
 
+    #Test if draw results are true for given condition
+    Draw_params = Draw[["Idle_time", "SES", "DM"]] > 100
+
+    #Perform OR sum for each column, resulting in one column
+    condition = Draw_params["Idle_time"] | Draw_params["SES"] | Draw_params["DM"]
+    
+    #Append the column to Draw DataFrame
+    Draw['is_>100%'] = condition
+        
+    print("Link draw is:\n" + str(Draw) + "\n")
+    return Draw
+
+def drawPowerCorrection(Draw, Pt):
+    '''
+    Returns array of power incremented by 0.5 with same indices as indices of rows of Draw which >100%\n
+    Draw: Pandas dataframe obtained by calling function linkDraw\n
+    Pt: transmitted Power
+    '''
+
+    #Create pandas DF from array Pt and append it to Draw DF
+    Power = pd.DataFrame(Pt)
+    Draw['Transmitted_power[dBm]'] = Power
+    
+    #Store condition from Draw DF in variable
+    condition = Draw['is_>100%']
+
+    #Get indices where the condition is true
+    indices = condition.index[condition == True].tolist()
+    
+    #Increment transmitted power at indices
+    Draw.loc[indices, 'Transmitted_power[dBm]'] = Draw.loc[indices, 'Transmitted_power[dBm]'] + 0.5
+
+    #Store transmitted power in Pt variable as numpy array
+    Pt = Draw['Transmitted_power[dBm]'].to_numpy() 
+    
+    return(Pt)
+   
 #Specify noise number [dB]
 F_rx = 3
 
@@ -403,20 +451,19 @@ F_rx = 3
 B = 28
 
 #Specify antennas gains [dBi]. If you use the same antenna for every link, specify only one. 
-G = 42.1
+G = 38.9
 
 #Front-back ratio
-FB = 72
+FB = 64
 
 #Distance between two links [km]
 d = np.array([13.07, 26.52, 14.69, 16.95, 13.92, 18.86, 20.46, 7.24])
 
 #Specify transmitted power [dBm]
-Pt = 27
+Pt = 10
 
 #Frequency [GHz]
 Carrier_freq = 4
-
 
 #Set minimum reserve for FFM
 min = setMinimumFFM(d)
@@ -444,3 +491,47 @@ Quality = linkQuality(B, FFM, Carrier_freq, d)
 
 #Calculate Draw
 Draw = linkDraw(Quality, d)
+
+condition = Draw['is_>100%'].sum()
+
+#Do the power correction
+Corrected_power = drawPowerCorrection(Draw, Pt)
+
+#Correct the power using Corrected_power as argument passed in methods inside while loop until all values in Draw DF are >100%
+while condition != 0:
+    
+    #Calculate FFM
+    FFM = flatFadeMargin(G, d, Corrected_power, Carrier_freq,  Pte)
+
+    #Calculate quality and draw
+    Quality = linkQuality(B, FFM, Carrier_freq, d)
+    Draw = linkDraw(Quality, d)
+
+    #Recurrently update value of condition
+    condition = Draw['is_>100%'].sum()
+
+    #Check for link power levels that still need correction and raise them by 0.5
+    Corrected_power = drawPowerCorrection(Draw, Corrected_power)
+    
+    #Print message
+    print(str(condition) + ' values still left to correct to satisfy draw condition.')
+    
+#Print the once condition is satisfied
+else: print('Power is corrected')
+Draw['Distance[km]'] = d
+print(Draw.round(2))
+
+#Calculate FFM 
+FFM = flatFadeMargin(G, d, Corrected_power, Carrier_freq,  Pte)
+
+#Insert minimal FFM to dataframe
+FFM.insert(2, 'min_FFM_e6', min)
+
+#Add column of bools for given condition
+FFM['FFM>min_FFM'] = FFM['BER_e6'] >= FFM['min_FFM_e6']  
+
+#Print Dataframe without column of FFM's for BER 3
+print(FFM.drop(columns = 'BER_e3'))
+
+#Calculate C/I with FFM_corr as numpy array
+carrierInterferenceRatio(Corrected_power, FB, 15, FFM['BER_e6'], G, Carrier_freq)
