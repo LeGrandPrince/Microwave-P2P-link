@@ -268,7 +268,7 @@ R = pd.DataFrame(data = results)
 #Print the whole dataframe
 print(R.to_string())
 
-#Calculate effective isotropic radiated power
+#Calculate recieved power
 P_rx = Ptx_corr- (20*np.log10(d)+20*np.log(Carrier_freq) + 92.4) + 2*G
 
 #Specify front/back ratio
