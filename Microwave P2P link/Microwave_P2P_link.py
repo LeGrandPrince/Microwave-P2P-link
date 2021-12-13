@@ -1,6 +1,7 @@
 import numpy as np
 import math
 import pandas as pd
+from scipy.special import erfc
 
 def powerThreshold(F_rx, B, M_QAM = "16-QAM", B_unit = "MHz"):
     '''
@@ -27,8 +28,7 @@ def powerThreshold(F_rx, B, M_QAM = "16-QAM", B_unit = "MHz"):
     Pn = -173.9 + 10*np.log10(B*B_units[B_unit])  
 
     #BER-6 SNR thresholds for M-QAM modulations
-    SNR_e6 = {'2-QAM':10.53,
-              '4-QAM':13.2,
+    SNR_e6 = {'4-QAM':13.2,
               '8-QAM':16.90,
               '16-QAM':20.5,
               '32-QAM':23.4,
@@ -36,25 +36,41 @@ def powerThreshold(F_rx, B, M_QAM = "16-QAM", B_unit = "MHz"):
               '128-QAM':29.5,
               '256-QAM':32.6}
 
-    #Power threshold for BER-6
-    P_the6 = Pn + F_rx + SNR_e6[M_QAM]
-    
-    #Print the message
-    print("Method powerThreshold has been called.\nPower threshold for " + M_QAM + " is " + str(np.round(P_the6,2)) + " dBm.\n\n\n")
-    return P_the6
+    SNR_e3 = {'8-QAM':12.08,
+              '16-QAM':15.39,
+              '32-QAM':18.55,
+              '64-QAM':21.63,
+              '128-QAM':24.67,
+              '256-QAM':27.70}
 
-def flatFadeMargin(Ga, d, Ptx, fc, Pthe6):
+    #Power threshold for BER-6
+    Power_threshold = {'BER_e6':[Pn + F_rx + SNR_e6[M_QAM]],
+                       'BER_e3':[Pn + F_rx + SNR_e3[M_QAM]]}
+    
+    P_th = pd.DataFrame(Power_threshold)
+
+    #Print the dataframe
+    print("Power threshold is:\n" + str(P_th) + "\n")
+    return P_th
+
+def flatFadeMargin(Ga, d, Ptx, fc, Pthe):
     '''
     Calculates FFM for each link using given arguments. Function assumes using same antenna on every link.
 
-    \nGa:antenna gain. Usually double [dBi] but can be int as well.
-    \nd: array of distances for each link [km]. Usually int or double.
-    \nPtx: Transmitted power [dBm]. Single value. Could be int, double or float.
+    \nGa:antenna gain. Probably of type double.
+    \nd: array of distances for each link.
+    \nPtx: Transmitted power. Single value. Could be int, double or float.
     \nfc: Noise number. Assuming ideal transmitter it is 0. Usually int but can be double or float.
     \nPthe6: Power threshold for BER-6. Calculate using powerThreshold.
 
     '''
+    Pth_e6 = Pthe.loc[:, 'BER_e6']
+    Pth_e3 = Pthe.loc[:, 'BER_e3']
 
+    Pe6 = Pth_e6.to_numpy()
+    Pe3 = Pth_e3.to_numpy()
+
+    
     #Create an array of length d full of Ptx and float 64 type
     Pt = np.full(len(d), Ptx, dtype = np.float64)
     
@@ -68,14 +84,17 @@ def flatFadeMargin(Ga, d, Ptx, fc, Pthe6):
     P_rx = P_eirp - A_los + Ga
 
     #Calculate flat fading margin for BER-6
-    FFM_e6 = P_rx - Pthe6
+    FFM_e6 = P_rx - Pe6
     print("Method flatFadeMargin has been called.\nFor transmitted power Ptn =  " + str(np.round(Pt, 2))+ " dBm, \nFFM = " + str(np.round(FFM_e6, 2)) + 
           ' dB.\nValues are rounded in the text window to 2 decimals, but are stored as np.float64.\n\n\n')
 
-    #Calculate FFM/km
-    FFM_km = FFM_e6 / d
+    flatFade = {'BER_e6':P_rx - Pth_e6[0],
+                'BER_e3':P_rx - Pth_e3[0]}
     
-    return FFM_e6
+    FFM = pd.DataFrame(flatFade)
+
+    print("FFM is:\n" + str(FFM) + "\n")
+    return FFM
 
 def setMinimumFFM(d):
     '''
@@ -87,15 +106,15 @@ def setMinimumFFM(d):
     
     #Create dict with keys as upper distance boundaries and values as minimum FFM reserves.
     r = {#0-10km
-         10: 15,
+         10: 17.5,
          #10-20km
-         20: 20,
+         20: 22.5,
          #20-30km
-         30: 25,
+         30: 27.5,
          #30-40km
-         40: 30,
+         40: 32.5,
          #40-50km
-         50: 35}
+         50: 37.5}
 
     #For purpose of later appending, create array full of zeros of length r
     max_distance_upper = np.zeros(len(r))
@@ -139,7 +158,7 @@ def setMinimumFFM(d):
           + str(min_FFM.round(2)) + " dBm.\n\n\n")
     return min_FFM
           
-def transmittedPowerCorrection(Ptx, FFM, d, min):
+def transmittedPowerCorrection(Ptx, FFM, d):
     '''
     Corrects the value of transmitted Power for each link based on given distance.
 
@@ -148,24 +167,19 @@ def transmittedPowerCorrection(Ptx, FFM, d, min):
     \n d: array of distances for each link.
 
     '''
-
+    FFM_e6 = FFM.loc[:, 'BER_e6']
     #Create an np array of length d and values of Pt at each places
     Pt = np.full(len(d), Ptx, dtype = np.float64)
 
-    #Create an array of booleans for FFM is smaller than minimal FFM value (array of True/False values)
-    Ptx_bad_min = FFM < min
-    Ptx_bad_max = FFM > min + 5
-    
-    #Perform OR logical operation on given values and store it as Ptx_bad
-    Ptx_bad = Ptx_bad_min|Ptx_bad_max
+    #Create an array of booleans for given condition
+    Ptx_bad = FFM_e6 < min
 
     #Find indices of values which satisfy the given condition
     indices = [i for i, x in enumerate(Ptx_bad) if x]
 
-    #For each index which satisfies given condition, update transmitted power Pt by given formula
+    #For each index which satisfies given condition, update the value by given formula
     for i in indices:
-        print(i)
-        Pt[i] = Pt[i] + (min[i] - FFM[i])
+        Pt[i] = Pt[i] + (min[i] - FFM_e6[i])
     
     #Print the results
     print('Method transmittedPowerCorrection has been called.\nCorrected values of Pt to satisfy the minimal FFM condition:\nPt = ' + 
@@ -173,33 +187,172 @@ def transmittedPowerCorrection(Ptx, FFM, d, min):
           '\nValues in text are rounded to 2 decimals, but are stored as np.float64. \nCalculate FFM again with corrected values of Pt.\n\n\n')
     return Pt
 
-def carrierInterferenceRatio(Prx, FB, CI_min):
-   
+def linkQuality(B, FFM, f, d, t_a = 0, t_aR = 0, c = 0.065):
+    '''
+    Returns pandas dataframe. Function that very straightforwardly 
+    calculates link quality in three parameters: idle time, SES and DM.\n
+    B: Bandwidth\n
+    FFM: Pandas series of calculated FFM for BER-6 and BER-3\n
+    f: carrier frequency\n
+    d: distance(s)\n
+    t_a and t_aR: Coefficients for worst month and yearly percentage. Obtained from look-up table\n
+    c: terrain coefficient different for each country
+    '''
+    #Calculate fmin and fmax
+    f1 = -B/2
+    f2 = B/2
+
+    #Calculate signature
+    S = np.exp(-(f1 + f2)/7.6 * (6))
+
+    #Calculate S_e3, S_e6 and mean time delay
+    S_e3 = S
+    S_e6 = S * 1.7
+    tau = 6.3
+
+    #Probability that fading will have minimal phase 
+
+    #for 10 =< d =< 40 km
+    q1 = (-1.5 * d / 100) + 1.1
+    
+    #for d > 40 km
+    q2 = 0.5
+
+    #Probability of interferential fading occurence
+    PR = (c * Carrier_freq * 10**-3 * d**3 * 6 * 10**(-8))
+
+    #Probability of selective fading occurence
+    Ps = (1 - np.exp(-6.3 * 10**(-3) * PR**0.75))
+
+    #Mean value of delay
+    tau_er = 0.7 * (d/50)**1.3
+
+    #BER-3 error rate 
+    t3sM = 9.25 * 10**(-3) * Ps * S_e3 * (tau_er**2 / tau) * q1
+    t3sN = 9.25 * 10**(-3) * Ps * S_e3 * (tau_er**2 / tau) * (1 - q1)
+    t3s = t3sM + t3sN
+    
+    #BER-6 error rate
+    t6sM = 9.25 * 10**(-3) * Ps * S_e6 * (tau**2 / tau) * (q1)
+    t6sN = 9.25 * 10**(-3) * Ps * S_e6 * (tau**2 / tau) * (1 - q1)
+    t6s = t6sM + t6sN
+    
+    FFM_3 = FFM['BER_e3'].to_numpy()
+    FFM_6 = FFM['BER_e6'].to_numpy()
+
+    t3f = 10**(-0.1*FFM_3)
+    t6f = 10**(-0.1*FFM_6) 
+
+
+    #Calculation of probability that t >= 10
+    numerator = (10 - 10 * np.log10((56.6 * np.sqrt(d))) /  (Carrier_freq) * 10**(-(FFM_3 / 20)))
+    denominator = (7.55 - c * FFM_3) * np.sqrt(2)
+
+    Prob_t10 = (1/2 * erfc(numerator / denominator + 0.375))
+
+    #CALCULATION OF IDLE TIME
+    #by flat, interferential fadings
+    t_Kf = t3f/4 * Prob_t10
+
+    #by selective fadings
+    t_Ks = t3s/4 * Prob_t10
+
+    #Sum + absorptive fadings (yearly)
+    t_K = t_Kf + t_Ks + t_aR
+
+
+
+    #CALCULATION OF SES
+    #by interferencial fadings
+    t_SESf = t3f * (1 - Prob_t10)
+
+    #by selective fadings
+    t_SESs = t3s * (1 - Prob_t10)
+
+    #by absorptive fadings (worst month)
+    t_SESa = t_a/186
+
+    #Sum of all 3
+    t_SES = t_SESf + t_SESs + t_SESa
+
+
+
+    #DM CALCULATION
+    # by flat, interferential fadings
+    t_DMf = 5.5 * (t6f - t3f)
+
+    #by selective fadings
+    t_DMs = 5.5 * (t6s - t3s)
+
+    #by absorptive fadings
+    t_DMa = 0.555 * (t_a - 0.1 * t_a)
+
+    #Sum of all 3
+    t_DM = t_DMf + t_DMs + t_DMa 
+
+     #Store results as a dict
+    Q = {'Idle_time':t_K,
+         'SES':t_SES,
+         'DM':t_DM}
+
+    #Create pandas dataframe from Q and return it
+    Quality = pd.DataFrame(Q)
+    print("Link quality is:\n" + str(Quality) + "\n")
+    return(Quality)
+
+def carrierInterferenceRatio(Ptx, FB, CI_min, FFM, G, fc):
+    '''
+    Returns pandas dataframe with repeater names as indexes C/I's
+    from left and right for each repeater and if it satisfies minimum C/I.\n
+
+    Ptx: Transmitted power. NumPy array\n
+    FB: Front-back ratio\n
+    CI_min: Minimal value of C/I\n
+    FFM: FFM for BER-6 (numpy array)\n
+    G: Antenna gain\n
+    fc: Carrier frequency.
+   '''
+
+    #Calculation of effective isotropic radiated power
+    P_eirp = Pt + G
+    
+    #Calculate link fade
+    A_los = 20*np.log10(d)+20*np.log(fc) + 92.4
+    
+    #Calculate power on the reciever antenna
+    Prx = P_eirp - A_los + G
+
     #Create arrays of Prx and FFM's coming from the left side of the reciever
     #on scheme by adding 0 as the first element.
-    FFM_left =  np.concatenate(([0], FFM_corr)) 
+    FFM_left =  np.concatenate(([0], FFM)) 
     Prx_left = np.concatenate(([0], Prx))
     
+   
     #Create arrays of Prx and FFM's coming from the rightside of the reciever
     #on scheme by adding 0 as the last element.
     Prx_right = np.concatenate((Prx, [0]))
-    FFM_right =  np.concatenate((FFM_corr, [0]))
+    FFM_right =  np.concatenate((FFM, [0]))
+    
     
     #Create an array for which every station (reciever) will contain two values, 
     #interference from the left side and from right side
     CI = np.zeros((len(d)+1, 2))
     
+   
     #Calculate C/I [dB] for the worst case scenario i.e. maximum FFM on carrier and 
     #minimum (0) FFM on interference
     i = 0
     for val in CI:
 
+    
         CI[i] = [(Prx_left[i] - FFM_left[i]) - (Prx_right[i] - FB), (Prx_right[i] - FFM_right[i]) - (Prx_left[i] - FB)]
         i = i + 1
 
+    
     #Leave out first and last element, since they represent end stations and there is
     #no interference from other side
     CI = CI[1:-1]  
+    
     
     #Create an array of booleans for C/I higher than minimum C/I
     CI_cond = CI > CI_min
@@ -210,13 +363,38 @@ def carrierInterferenceRatio(Prx, FB, CI_min):
               'Satisfies_right':CI_cond[:,1],
               'Satisfies_left':CI_cond[:,1]
               }
-    
+   
     #Create a df from dict and return it
     Results = pd.DataFrame(result)
     Results.index = np.arange(2, len(Results)+2)
     Results.index.name = 'Repeater'
+    print(Results.to_string())
     return Results
+    
+def linkDraw(Q, d):
+    '''
+    Calculates draw of each quality parameter. Returns pandas series type.\n
+    Q: Pandas series containing all quality params. Calculated by method linkQuality.\n
+    d: array of distances
+    '''
+    
+    idleTime = Q['Idle_time'].to_numpy()
+    SES = Q['SES'].to_numpy()
+    DM = Q['DM'].to_numpy()
 
+    
+    #Percentage by class X1
+    idleTime_perc = (0.0112/280)*d
+    SES_perc = (0.006/280)*d
+    DM_perc = (0.0448/280)*d
+    
+    #Calculate draw and store it as a dict
+    d = {'Idle_time': idleTime*100/idleTime_perc,
+         'SES': SES*100/SES_perc,
+         'DM': DM*100/DM_perc }
+
+    Draw = pd.DataFrame(d)
+    print("Link draw is:\n" + str(Draw) + "\n")
 
 #Specify noise number [dB]
 F_rx = 3
@@ -225,62 +403,44 @@ F_rx = 3
 B = 28
 
 #Specify antennas gains [dBi]. If you use the same antenna for every link, specify only one. 
-G = 38.9
+G = 42.1
+
+#Front-back ratio
+FB = 72
 
 #Distance between two links [km]
 d = np.array([13.07, 26.52, 14.69, 16.95, 13.92, 18.86, 20.46, 7.24])
 
-#Specify nominal transmitted power [dBm] this script will correct it for each hop
-Pt = 20
+#Specify transmitted power [dBm]
+Pt = 27
 
 #Frequency [GHz]
 Carrier_freq = 4
 
-Link_names = ["ŽnH-Kunešov", "Kunešov-Tlstá", "Tlstá-Katova_skala", "Katova_skala-Rakytie", "Rakytie-Terchová", "Terchová-Kubínska", "Kubínska-Javorový_vrch", "Javorový_vrch-Trstenná"]
 
-#Set minimum reserve for FFM by calling a method
+#Set minimum reserve for FFM
 min = setMinimumFFM(d)
 
 #Calculate the power threshold
-Pte6 = powerThreshold(F_rx, B, "128-QAM", "MHz")
+Pte = powerThreshold(F_rx, B, "128-QAM", "MHz")
 
 #Calculate FFM
-FFM = flatFadeMargin(G, d, Pt, Carrier_freq,  Pte6)
+FFM = flatFadeMargin(G, d, Pt, Carrier_freq, Pte)
 
 #Perform transitted power correction to satisfy the minimum FFM values.
-Ptx_corr = transmittedPowerCorrection(Pt, FFM, d, min)
+Pt = transmittedPowerCorrection(Pt, FFM, d)
 
 #Calculate FFM for corrected values of Pt
-FFM_corr = flatFadeMargin(G, d, Ptx_corr, Carrier_freq,  Pte6)
+FFM = flatFadeMargin(G, d, Pt, Carrier_freq,  Pte)
 
+#Extract Pandas series for BER-6 from FFM dataframe and store it as a numpy array
+FFM_corr = FFM['BER_e6'].to_numpy()
 
-#Create a dict with all variables you want to print
-results = {'Link_names':Link_names,
-           'Former_Ptx[dBm]':np.full(len(d), Pt),
-           'Distance[km]':d,
-           'Former_FFM[dB]':np.round(FFM,2),
-           'Corrected_Ptx[dBm]':np.round(Ptx_corr,2),           
-           'CorrectedPtx_FFM[dB]':np.round(FFM_corr,2)
-    }
-#Create a pandas dataframe from specified dict
-R = pd.DataFrame(data = results)
+#Calculate C/I with FFM_corr as numpy array
+carrierInterferenceRatio(Pt, FB, 15, FFM_corr, G, Carrier_freq)
 
-#Print the whole dataframe
-print(R.to_string())
+#Calculate idle time, SES and DM
+Quality = linkQuality(B, FFM, Carrier_freq, d)
 
-#Calculate recieved power
-P_rx = Ptx_corr- (20*np.log10(d)+20*np.log(Carrier_freq) + 92.4) + 2*G
-
-#Specify front/back ratio
-FB_ratio = 69
-
-#Specify minimum C/I ratio
-minimum_CI = 15
-
-#Call method to calculate C/I 
-CI = carrierInterferenceRatio(P_rx, FB_ratio, minimum_CI)
-
-print(CI.to_string())
-
-
-
+#Calculate Draw
+Draw = linkDraw(Quality, d)
