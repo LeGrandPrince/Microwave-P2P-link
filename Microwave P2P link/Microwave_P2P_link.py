@@ -378,6 +378,7 @@ def linkDraw(Q, d):
     d: array of distances
     '''
     
+    #Pull parameters out of dataframe as numpy arrays
     idleTime = Q['Idle_time'].to_numpy()
     SES = Q['SES'].to_numpy()
     DM = Q['DM'].to_numpy()
@@ -393,6 +394,7 @@ def linkDraw(Q, d):
          'SES': SES*100/SES_perc,
          'DM': DM*100/DM_perc }
 
+    #Create a pandas DF and print it
     Draw = pd.DataFrame(d)
     print("Link draw is:\n" + str(Draw) + "\n")
 
