@@ -86,10 +86,14 @@ def flatFadeMargin(Ga, d, Ptx, fc, Pthe):
     #Calculate power on the reciever antenna
     P_rx = P_eirp - A_los + Ga
 
-    
+    #Calculate flat fading margin for BER-6
+    FFM_e6 = P_rx - Pe6
+    print("Method flatFadeMargin has been called.\nFor transmitted power Ptn =  " + str(np.round(Pt, 2))+ " dBm, \nFFM = " + str(np.round(FFM_e6, 2)) + 
+          ' dB.\nValues are rounded in the text window to 2 decimals, but are stored as np.float64.\n\n\n')
+
     flatFade = {'BER_e6':P_rx - Pth_e6[0],
                 'BER_e3':P_rx - Pth_e3[0]}
-
+    
     FFM = pd.DataFrame(flatFade)
 
     print("FFM is:\n" + str(FFM) + "\n")
@@ -186,7 +190,7 @@ def transmittedPowerCorrection(Ptx, FFM, d):
           str(np.round(Pt, 2)) + 
           '\nValues in text are rounded to 2 decimals, but are stored as np.float64. \nCalculate FFM again with corrected values of Pt.\n\n\n')
     return Pt
- 
+
 
 def linkQuality(B, FFM, f, d):
     #Calculate fmin and fmax
@@ -235,17 +239,17 @@ def linkQuality(B, FFM, f, d):
 
     Prob_t10 = (1/2 * erfc(numerator / denominator + 0.375))
 
-    #Calculation of idle time by flat, interferential fadings
+     #Calculation of idle time by flat, interferential fadings
     t_Kf = t3f/4 * Prob_t10
 
-    #Calculation of idle time by selective fadings
+     #Calculation of idle time by selective fadings
     t_Ks = t3s/4 * Prob_t10
     t_K = t_Kf + t_Ks
 
     #SES calculation by interference fadings
     t_SESf = t3f * (1 - Prob_t10)
 
-    #SES calculation by selective fadings
+     #SES calculation by selective fadings
     t_SESs = t3s * (1 - Prob_t10)
 
     t_SES = t_SESf + t_SESs
@@ -256,10 +260,10 @@ def linkQuality(B, FFM, f, d):
     #DM calculation by selective fadings
     t_DMs = 5.5 * (t6s - t3s)
 
-    #DM calculation
+     #DM calculation
     t_DM = t_DMf + t_DMs
-    
-    #Store results as a dict
+
+     #Store results as a dict
     Q = {'Idle_time':t_K,
          'SES':t_SES,
          'DM':t_DM}
@@ -269,23 +273,82 @@ def linkQuality(B, FFM, f, d):
     print("Link quality is:\n" + str(Quality) + "\n")
     return(Quality)
 
+
+def carrierInterferenceRatio(Prx, FB, CI_min):
+   
+   
+    #Create arrays of Prx and FFM's coming from the left side of the reciever
+    #on scheme by adding 0 as the first element.
+    FFM_left =  np.concatenate(([0], FFM_corr)) 
+    Prx_left = np.concatenate(([0], Prx))
+    
+   
+    #Create arrays of Prx and FFM's coming from the rightside of the reciever
+    #on scheme by adding 0 as the last element.
+    Prx_right = np.concatenate((Prx, [0]))
+    FFM_right =  np.concatenate((FFM_corr, [0]))
+    
+    
+    #Create an array for which every station (reciever) will contain two values, 
+    #interference from the left side and from right side
+    CI = np.zeros((len(d)+1, 2))
+    
+   
+    #Calculate C/I [dB] for the worst case scenario i.e. maximum FFM on carrier and 
+    #minimum (0) FFM on interference
+    i = 0
+    for val in CI:
+
+    
+        CI[i] = [(Prx_left[i] - FFM_left[i]) - (Prx_right[i] - FB), (Prx_right[i] - FFM_right[i]) - (Prx_left[i] - FB)]
+        i = i + 1
+
+    
+    #Leave out first and last element, since they represent end stations and there is
+    #no interference from other side
+    CI = CI[1:-1]  
+    
+    
+    #Create an array of booleans for C/I higher than minimum C/I
+    CI_cond = CI > CI_min
+    
+    #Store the results in dict
+    result = {'C/I_from_right[dB]':np.round(CI[:, 1],2),
+              'C/I_from_left[dB]':np.round(CI[:, 0],2),
+              'Satisfies_right':CI_cond[:,1],
+              'Satisfies_left':CI_cond[:,1]
+              }
+   
+    #Create a df from dict and return it
+    Results = pd.DataFrame(result)
+    Results.index = np.arange(2, len(Results)+2)
+    Results.index.name = 'Repeater'
+    return Results
+    
+   
+
+    
+
 def linkDraw(Q, d):
     
     idleTime = Q['Idle_time'].to_numpy()
     SES = Q['SES'].to_numpy()
     DM = Q['DM'].to_numpy()
 
-
+    
+    
     idleTime_perc = (0.0112/280)*d
     SES_perc = (0.006/280)*d
     DM_perc = (0.0448/280)*d
-        
+    
+
     d = {'Idle_time': idleTime * 100/idleTime_perc,
          'SES':SES * 100/SES_perc,
          'DM':DM * 100/DM_perc }
 
     Draw = pd.DataFrame(d)
     print("Link draw is:\n" + str(Draw) + "\n")
+
 #Specify noise number [dB]
 F_rx = 3
 
